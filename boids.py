@@ -121,29 +121,9 @@ def collisions():
                 (cx+1, cy-1), (cx+1, cy), (cx+1, cy+1)]
 
             for neighbour_cell in neighbouring_cells:
-                # drones_in_neighbour_cell = [
-                #     nb_drone for nb_drone in cell_to_drone_assignment.get(neighbour_cell, []) 
-                #     if nb_drone > drone_idx]
                 for nb_drone in cell_to_drone_assignment.get(neighbour_cell, []):
-                    # if len(nb_drone) > 0:
-                    candidate_pair_list.append((drone_idx, nb_drone))
-                
-                # candidate_pair_list.append((drone_idx, drones_in_neighbour_cell))
-    
-
-    # view_1 = drone_pos[:, None, :]
-    # view_2 = drone_pos[None, :, :]
-
-    # squared_distances = np.sum((view_1 - view_2)**2, axis=2)
-    # squared_distance_mask = squared_distances <= (2 * DRONE_SIZE) ** 2
-    # masked_distances = np.triu(squared_distance_mask, k=1)
-    # drone_indices = np.array(masked_distances.nonzero()).T
-
-    # new_drone_indices = []
-    # for (drone_idx_new, neighbours_new) in candidate_pair_list:
-    #     if len(neighbours_new) > 0:
-    #         for nb in neighbours_new:
-    #             new_drone_indices.append((drone_idx_new, nb))
+                    if nb_drone > drone_idx:
+                        candidate_pair_list.append((drone_idx, nb_drone))
 
     drone_indices = sorted(candidate_pair_list)
 
