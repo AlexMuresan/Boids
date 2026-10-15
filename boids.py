@@ -1,12 +1,11 @@
 import pygame
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 import time
 from itertools import combinations
 
-N_DRONES =  200
+N_DRONES = 600
 DRONE_SIZE = 5
 DRONE_VELOCITY = 1
 DISTANCE_TRESHOLD = 150
@@ -27,12 +26,17 @@ global text
 global textRect
 global screen
 
+global neighbour_times
+global averaging_times
+
+neighbour_times = []
+averaging_times = []
+
 drone_pos = np.random.randint(
     [DRONE_SIZE, DRONE_SIZE], [X - DRONE_SIZE, Y - DRONE_SIZE], size=(N_DRONES, 2)
 ).astype(float)
 drone_directions = np.random.choice([-1, 1], size=[N_DRONES, 2]).astype(float)
-# colors = np.random.randint(0, 255, size=(N_DRONES, 3))
-colors = [0, 0, 0] * N_DRONES
+colors = np.random.randint(0, 255, size=(N_DRONES, 3))
 
 
 def get_pos(drone_idx):
@@ -90,8 +94,21 @@ def check_wall_collisions():
 def collisions():
     check_wall_collisions()
 
-    # Check drone collisions
-    for drone_idx_1, drone_idx_2 in combinations([i for i in range(N_DRONES)], 2):
+    # Assign each drone to a grid cell
+    cell_assignment = {
+        drone_idx:(np.floor(pos_x/(2*DRONE_SIZE)).astype(int), np.floor(pos_y/(2*DRONE_SIZE)).astype(int)) 
+        for drone_idx, (pos_x, pos_y) in enumerate(drone_pos)
+    }
+
+    view_1 = drone_pos[:, None, :]
+    view_2 = drone_pos[None, :, :]
+
+    squared_distances = np.sum((view_1 - view_2)**2, axis=2)
+    squared_distance_mask = squared_distances <= (2 * DRONE_SIZE) ** 2
+    masked_distances = np.triu(squared_distance_mask, k=1)
+    drone_indices = np.array(masked_distances.nonzero()).T
+
+    for drone_idx_1, drone_idx_2 in drone_indices:
         d_x = drone_pos[drone_idx_1][0] - drone_pos[drone_idx_2][0]
         d_y = drone_pos[drone_idx_1][1] - drone_pos[drone_idx_2][1]
 
@@ -172,11 +189,9 @@ def draw_arrow(start, end, color):
     pygame.draw.polygon(screen, color, [end_vec, fin1, fin2])
 
 
-def find_neighbours(drone_idx):
-    current_drone_pos = get_pos(drone_idx)
-    displacements = current_drone_pos - drone_pos
-
-    squared_distances = np.sum(displacements ** 2, axis=1)
+def find_neighbours(drone_idx, pairwise_displacements, pairwise_squared_distances):
+    displacements = pairwise_displacements[drone_idx]
+    squared_distances = pairwise_squared_distances[drone_idx]
 
     neighbourhood_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
     neighbourhood_displacements = displacements[neighbourhood_mask]
@@ -189,32 +204,21 @@ def find_neighbours(drone_idx):
     return neighbourhood_indices, contributions
 
 
-
 # def find_neighbours(drone_idx):
-#     neighbours = []
-
-#     separation_vector = np.array([0, 0]).astype(float)
 #     current_drone_pos = get_pos(drone_idx)
+#     displacements = current_drone_pos - drone_pos
 
-#     for potential_neighbour_idx in range(N_DRONES):
-#         if drone_idx == potential_neighbour_idx:
-#             continue
+#     squared_distances = np.sum(displacements ** 2, axis=1)
 
-#         potential_neighbour_pos = get_pos(potential_neighbour_idx)
-#         distance_to_neigbour = np.sqrt((current_drone_pos[0] - potential_neighbour_pos[0])**2 + (current_drone_pos[1] - potential_neighbour_pos[1])**2)
+#     neighbourhood_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
+#     neighbourhood_displacements = displacements[neighbourhood_mask]
+#     neighbourhood_indices = np.flatnonzero(neighbourhood_mask)
+#     neighbourhood_distances = squared_distances[neighbourhood_mask]
+#     contributions = np.sum(
+#         neighbourhood_displacements / neighbourhood_distances[:, None], 
+#         axis=0)
 
-#         if distance_to_neigbour > 0:
-#             if distance_to_neigbour < DISTANCE_TRESHOLD + 2 * DRONE_SIZE:
-#                 neighbours.append(potential_neighbour_idx)
-#                 neighbour_vector = current_drone_pos - potential_neighbour_pos
-#                 contribution = neighbour_vector / distance_to_neigbour ** 2
-#                 separation_vector += contribution
-
-#                 # pygame.draw.line(screen, colors[drone_idx], current_drone_pos, potential_neighbour_pos, width=1)
-    
-#     # draw_arrow(current_drone_pos.tolist(), (current_drone_pos + separation_vector * 1000).tolist(), colors[drone_idx])
-
-#     return neighbours, separation_vector
+#     return neighbourhood_indices, contributions
 
 
 def clamp_velocity(velocity):
@@ -232,18 +236,24 @@ def clamp_velocity(velocity):
     return velocity
 
 
-def boids_algorithm(drone_idx):
-    drone_neighbours, separation_vector = find_neighbours(drone_idx)
+def boids_algorithm(drone_idx, pairwise_displacements, pairwise_squared_distances):
+    global neighbour_time_accumulator
+    global averaging_timer_accumulator
+
+    start_neighbours = time.perf_counter()
+    drone_neighbours, separation_vector = find_neighbours(
+        drone_idx, pairwise_displacements, pairwise_squared_distances
+    )
+    elapsed_neighbours = time.perf_counter() - start_neighbours
+    neighbour_time_accumulator += elapsed_neighbours
+    
     current_velocity = get_direction(drone_idx) * DRONE_VELOCITY
     current_position = get_pos(drone_idx)
 
+    start_averaging = time.perf_counter()
     if len(drone_neighbours) > 0:
         neighbour_velocities = drone_directions[drone_neighbours] * DRONE_VELOCITY
         neighbour_positions = drone_pos[drone_neighbours]
-
-        # for neighbour_idx in drone_neighbours:
-        #     neighbour_velocities.append(get_direction(neighbour_idx) * DRONE_VELOCITY)
-        #     neighbour_positions.append(get_pos(neighbour_idx))
 
         avg_neighbour_velocity = np.mean(neighbour_velocities, axis=0)
         avg_neighbour_pos = np.mean(neighbour_positions, axis=0)
@@ -253,6 +263,8 @@ def boids_algorithm(drone_idx):
     else:
         alignment_steering = 0
         cohesion_contribution = 0
+    elapsed_averaging = time.perf_counter() - start_averaging
+    averaging_timer_accumulator += elapsed_averaging
 
     steering_contribution = (
         separation_vector * SEPARATION_STRENGTH
@@ -266,6 +278,48 @@ def boids_algorithm(drone_idx):
         steering_contribution = (steering_contribution / steering_contribution_length) * STEERING_LIMIT
 
     return clamp_velocity(current_velocity + steering_contribution)
+
+
+# def boids_algorithm(drone_idx):
+#     global neighbour_time_accumulator
+#     global averaging_timer_accumulator
+
+#     start_neighbours = time.perf_counter()
+#     drone_neighbours, separation_vector = find_neighbours(drone_idx)
+#     elapsed_neighbours = time.perf_counter() - start_neighbours
+#     neighbour_time_accumulator += elapsed_neighbours
+    
+#     current_velocity = get_direction(drone_idx) * DRONE_VELOCITY
+#     current_position = get_pos(drone_idx)
+
+#     start_averaging = time.perf_counter()
+#     if len(drone_neighbours) > 0:
+#         neighbour_velocities = drone_directions[drone_neighbours] * DRONE_VELOCITY
+#         neighbour_positions = drone_pos[drone_neighbours]
+
+#         avg_neighbour_velocity = np.mean(neighbour_velocities, axis=0)
+#         avg_neighbour_pos = np.mean(neighbour_positions, axis=0)
+
+#         alignment_steering = avg_neighbour_velocity - current_velocity
+#         cohesion_contribution = avg_neighbour_pos - current_position
+#     else:
+#         alignment_steering = 0
+#         cohesion_contribution = 0
+#     elapsed_averaging = time.perf_counter() - start_averaging
+#     averaging_timer_accumulator += elapsed_averaging
+
+#     steering_contribution = (
+#         separation_vector * SEPARATION_STRENGTH
+#         + alignment_steering * ALIGNMENT_STRENGTH
+#         + cohesion_contribution * COHESION_STRENGTH)
+
+#     steering_contribution_length = np.sqrt(
+#         steering_contribution[0] ** 2 + steering_contribution[1] ** 2)
+    
+#     if steering_contribution_length > STEERING_LIMIT:
+#         steering_contribution = (steering_contribution / steering_contribution_length) * STEERING_LIMIT
+
+#     return clamp_velocity(current_velocity + steering_contribution)
 
 
 pygame.init()
@@ -287,21 +341,51 @@ time_velocities = []
 time_directions = []
 time_positions = []
 time_collisions = []
+time_pairwise = []
+
+exit_timer = True
 
 start = time.perf_counter()
 
 while running:
-    for even in pygame.event.get():
-        if even.type == pygame.QUIT:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
             running = False
+    if (time.perf_counter() - start) >= 16 and exit_timer:
+        running  = False
+        
 
     screen.fill("white")
 
     new_velocities = []
 
     start_velocities = time.perf_counter()
+
+    start_pairwise = time.perf_counter()
+    pairwise_displacements = (
+        drone_pos[:, None, :] - drone_pos[None, :, :]
+    )
+
+    pairwise_squared_distances = np.sum(
+        pairwise_displacements ** 2, axis=2
+    )
+
+    elapsed_pairwise = time.perf_counter() - start_pairwise
+    time_pairwise.append(elapsed_pairwise)
+
+    neighbour_time_accumulator = 0
+    averaging_timer_accumulator = 0
+
     for drone_idx in range(N_DRONES):
-        new_velocities.append(boids_algorithm(drone_idx))
+        new_velocities.append(
+            boids_algorithm(
+                drone_idx, 
+                pairwise_displacements, 
+                pairwise_squared_distances))
+    
+    neighbour_times.append(neighbour_time_accumulator)
+    averaging_times.append(averaging_timer_accumulator)
+
     elapsed_velocities = time.perf_counter() - start_velocities
     time_velocities.append(elapsed_velocities)
 
@@ -347,3 +431,7 @@ print(f"Velocities: {np.mean(time_velocities) * 1000} ms")
 print(f"Directions: {np.mean(time_directions) * 1000} ms")
 print(f"Positions: {np.mean(time_positions) * 1000} ms")
 print(f"Collisions: {np.mean(time_collisions) * 1000} ms")
+print(f"Neighbours: {np.mean(neighbour_times) * 1000} ms")
+print(f"Averaging: {np.mean(averaging_times) * 1000} ms")
+print(f"Pairwise: {np.mean(time_pairwise) * 1000} ms")
+print()
