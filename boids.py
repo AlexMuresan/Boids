@@ -95,18 +95,57 @@ def collisions():
     check_wall_collisions()
 
     # Assign each drone to a grid cell
-    cell_assignment = {
+    drone_to_cell_assignment = {
         drone_idx:(np.floor(pos_x/(2*DRONE_SIZE)).astype(int), np.floor(pos_y/(2*DRONE_SIZE)).astype(int)) 
         for drone_idx, (pos_x, pos_y) in enumerate(drone_pos)
     }
 
-    view_1 = drone_pos[:, None, :]
-    view_2 = drone_pos[None, :, :]
+    # Cells containing drones
+    cell_to_drone_assignment = {}
+    for drone_idx, cell in drone_to_cell_assignment.items():
+        if cell in cell_to_drone_assignment:
+            cell_to_drone_assignment[cell].append(drone_idx)
+        else:
+            cell_to_drone_assignment[cell] = [drone_idx]
 
-    squared_distances = np.sum((view_1 - view_2)**2, axis=2)
-    squared_distance_mask = squared_distances <= (2 * DRONE_SIZE) ** 2
-    masked_distances = np.triu(squared_distance_mask, k=1)
-    drone_indices = np.array(masked_distances.nonzero()).T
+    # Neighbour search
+    candidate_pair_list = []
+    for curr_cell, drones_in_curr_cell in cell_to_drone_assignment.items():
+        for drone_idx in drones_in_curr_cell:
+            cx = curr_cell[0]
+            cy = curr_cell[1]
+
+            neighbouring_cells = [
+                (cx-1, cy-1), (cx-1, cy), (cx-1, cy+1), 
+                (cx, cy-1),   (cx, cy),   (cx, cy+1), 
+                (cx+1, cy-1), (cx+1, cy), (cx+1, cy+1)]
+
+            for neighbour_cell in neighbouring_cells:
+                # drones_in_neighbour_cell = [
+                #     nb_drone for nb_drone in cell_to_drone_assignment.get(neighbour_cell, []) 
+                #     if nb_drone > drone_idx]
+                for nb_drone in cell_to_drone_assignment.get(neighbour_cell, []):
+                    # if len(nb_drone) > 0:
+                    candidate_pair_list.append((drone_idx, nb_drone))
+                
+                # candidate_pair_list.append((drone_idx, drones_in_neighbour_cell))
+    
+
+    # view_1 = drone_pos[:, None, :]
+    # view_2 = drone_pos[None, :, :]
+
+    # squared_distances = np.sum((view_1 - view_2)**2, axis=2)
+    # squared_distance_mask = squared_distances <= (2 * DRONE_SIZE) ** 2
+    # masked_distances = np.triu(squared_distance_mask, k=1)
+    # drone_indices = np.array(masked_distances.nonzero()).T
+
+    # new_drone_indices = []
+    # for (drone_idx_new, neighbours_new) in candidate_pair_list:
+    #     if len(neighbours_new) > 0:
+    #         for nb in neighbours_new:
+    #             new_drone_indices.append((drone_idx_new, nb))
+
+    drone_indices = sorted(candidate_pair_list)
 
     for drone_idx_1, drone_idx_2 in drone_indices:
         d_x = drone_pos[drone_idx_1][0] - drone_pos[drone_idx_2][0]
