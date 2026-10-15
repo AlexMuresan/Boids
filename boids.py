@@ -223,23 +223,6 @@ def find_neighbours(drone_idx, pairwise_displacements, pairwise_squared_distance
     return neighbourhood_indices, contributions
 
 
-# def find_neighbours(drone_idx):
-#     current_drone_pos = get_pos(drone_idx)
-#     displacements = current_drone_pos - drone_pos
-
-#     squared_distances = np.sum(displacements ** 2, axis=1)
-
-#     neighbourhood_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
-#     neighbourhood_displacements = displacements[neighbourhood_mask]
-#     neighbourhood_indices = np.flatnonzero(neighbourhood_mask)
-#     neighbourhood_distances = squared_distances[neighbourhood_mask]
-#     contributions = np.sum(
-#         neighbourhood_displacements / neighbourhood_distances[:, None], 
-#         axis=0)
-
-#     return neighbourhood_indices, contributions
-
-
 def clamp_velocity(velocity):
     speed = np.linalg.norm(velocity)
 
@@ -299,48 +282,6 @@ def boids_algorithm(drone_idx, pairwise_displacements, pairwise_squared_distance
     return clamp_velocity(current_velocity + steering_contribution)
 
 
-# def boids_algorithm(drone_idx):
-#     global neighbour_time_accumulator
-#     global averaging_timer_accumulator
-
-#     start_neighbours = time.perf_counter()
-#     drone_neighbours, separation_vector = find_neighbours(drone_idx)
-#     elapsed_neighbours = time.perf_counter() - start_neighbours
-#     neighbour_time_accumulator += elapsed_neighbours
-    
-#     current_velocity = get_direction(drone_idx) * DRONE_VELOCITY
-#     current_position = get_pos(drone_idx)
-
-#     start_averaging = time.perf_counter()
-#     if len(drone_neighbours) > 0:
-#         neighbour_velocities = drone_directions[drone_neighbours] * DRONE_VELOCITY
-#         neighbour_positions = drone_pos[drone_neighbours]
-
-#         avg_neighbour_velocity = np.mean(neighbour_velocities, axis=0)
-#         avg_neighbour_pos = np.mean(neighbour_positions, axis=0)
-
-#         alignment_steering = avg_neighbour_velocity - current_velocity
-#         cohesion_contribution = avg_neighbour_pos - current_position
-#     else:
-#         alignment_steering = 0
-#         cohesion_contribution = 0
-#     elapsed_averaging = time.perf_counter() - start_averaging
-#     averaging_timer_accumulator += elapsed_averaging
-
-#     steering_contribution = (
-#         separation_vector * SEPARATION_STRENGTH
-#         + alignment_steering * ALIGNMENT_STRENGTH
-#         + cohesion_contribution * COHESION_STRENGTH)
-
-#     steering_contribution_length = np.sqrt(
-#         steering_contribution[0] ** 2 + steering_contribution[1] ** 2)
-    
-#     if steering_contribution_length > STEERING_LIMIT:
-#         steering_contribution = (steering_contribution / steering_contribution_length) * STEERING_LIMIT
-
-#     return clamp_velocity(current_velocity + steering_contribution)
-
-
 pygame.init()
 
 screen = pygame.display.set_mode((X, Y))
@@ -379,6 +320,38 @@ while running:
     new_velocities = []
 
     start_velocities = time.perf_counter()
+
+    drone_to_cell_map = {
+        drone_idx:(np.floor(x/(DISTANCE_TRESHOLD + 2*DRONE_SIZE)).astype(int), np.floor(y/(DISTANCE_TRESHOLD + 2*DRONE_SIZE)).astype(int))
+        for drone_idx, (x, y) in enumerate(drone_pos)
+    }
+
+    cell_to_drone_map = {}
+    for drone_idx, cell in drone_to_cell_map.items():
+        if cell in cell_to_drone_map:
+            cell_to_drone_map[cell].append(drone_idx)
+        else:
+            cell_to_drone_map[cell] = [drone_idx]
+
+    drone_candidate_mapping = {}
+    for cell, drone_list in cell_to_drone_map.items():
+        cx = cell[0]
+        cy = cell[1]
+
+        nb_cells = [
+            (cx-1, cy-1), (cx-1, cy),(cx-1, cy+1),
+            (cx, cy-1), (cx, cy),(cx, cy+1),
+            (cx+1, cy-1), (cx+1, cy),(cx+1, cy+1),
+            ]
+
+        for drone_idx in drone_list:
+            candidate_list = []
+            for nb_cell in nb_cells:
+                nb_drones = cell_to_drone_map.get(nb_cell, [])
+                candidate_list.extend(nb_drones)
+            
+            drone_candidate_mapping[drone_idx] = candidate_list
+
 
     start_pairwise = time.perf_counter()
     pairwise_displacements = (
