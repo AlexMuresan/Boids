@@ -208,19 +208,43 @@ def draw_arrow(start, end, color):
     pygame.draw.polygon(screen, color, [end_vec, fin1, fin2])
 
 
-def find_neighbours(drone_idx, pairwise_displacements, pairwise_squared_distances):
-    displacements = pairwise_displacements[drone_idx]
-    squared_distances = pairwise_squared_distances[drone_idx]
+def find_neighbours(
+        drone_idx, 
+        pairwise_displacements, 
+        pairwise_squared_distances,
+        drone_candidate_mapping):
+    # displacements = pairwise_displacements[drone_idx]
+    # squared_distances = pairwise_squared_distances[drone_idx]
 
-    neighbourhood_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
-    neighbourhood_displacements = displacements[neighbourhood_mask]
-    neighbourhood_indices = np.flatnonzero(neighbourhood_mask)
-    neighbourhood_distances = squared_distances[neighbourhood_mask]
-    contributions = np.sum(
-        neighbourhood_displacements / neighbourhood_distances[:, None], 
-        axis=0)
+    candidate_neigbours = drone_candidate_mapping[drone_idx]
+    current_drone_pos = drone_pos[drone_idx]
+    nb_pos = drone_pos[candidate_neigbours]
 
-    return neighbourhood_indices, contributions
+    displacements = current_drone_pos - nb_pos
+    squared_distances = np.sum(displacements**2, axis=1)
+
+    distance_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
+    masked_displacements = displacements[distance_mask]
+    masked_candidates = np.array(candidate_neigbours)[distance_mask]
+    masked_distances = squared_distances[distance_mask]
+
+    contributions = np.sum(masked_displacements / masked_distances[:, None], axis=0)
+
+    return masked_candidates, contributions
+
+
+    # displacements = np.array([current_drone_pos - drone_pos[nb_drone] for nb_drone in candidate_neigbours])
+    # squared_distances = [np.sum(np.sqrt(current_drone_pos**2 + drone_pos[nb_drone]**2), idx=0) for nb_drone in candidate_neigbours]
+
+    # neighbourhood_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
+    # neighbourhood_displacements = displacements[neighbourhood_mask]
+    # neighbourhood_indices = np.flatnonzero(neighbourhood_mask)
+    # neighbourhood_distances = squared_distances[neighbourhood_mask]
+    # contributions = np.sum(
+    #     neighbourhood_displacements / neighbourhood_distances[:, None], 
+    #     axis=0)
+
+    # return neighbourhood_indices, contributions
 
 
 def clamp_velocity(velocity):
@@ -238,13 +262,20 @@ def clamp_velocity(velocity):
     return velocity
 
 
-def boids_algorithm(drone_idx, pairwise_displacements, pairwise_squared_distances):
+def boids_algorithm(
+        drone_idx, 
+        pairwise_displacements, 
+        pairwise_squared_distances,
+        drone_candidate_mapping):
     global neighbour_time_accumulator
     global averaging_timer_accumulator
 
     start_neighbours = time.perf_counter()
     drone_neighbours, separation_vector = find_neighbours(
-        drone_idx, pairwise_displacements, pairwise_squared_distances
+        drone_idx, 
+        pairwise_displacements, 
+        pairwise_squared_distances,
+        drone_candidate_mapping
     )
     elapsed_neighbours = time.perf_counter() - start_neighbours
     neighbour_time_accumulator += elapsed_neighbours
@@ -373,7 +404,8 @@ while running:
             boids_algorithm(
                 drone_idx, 
                 pairwise_displacements, 
-                pairwise_squared_distances))
+                pairwise_squared_distances,
+                drone_candidate_mapping))
     
     neighbour_times.append(neighbour_time_accumulator)
     averaging_times.append(averaging_timer_accumulator)
