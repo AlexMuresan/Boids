@@ -209,42 +209,22 @@ def draw_arrow(start, end, color):
 
 
 def find_neighbours(
-        drone_idx, 
-        pairwise_displacements, 
-        pairwise_squared_distances,
-        drone_candidate_mapping):
-    # displacements = pairwise_displacements[drone_idx]
-    # squared_distances = pairwise_squared_distances[drone_idx]
-
-    candidate_neigbours = drone_candidate_mapping[drone_idx]
+        drone_idx,
+        candidate_neighbours,
+        candidate_positions):
     current_drone_pos = drone_pos[drone_idx]
-    nb_pos = drone_pos[candidate_neigbours]
 
-    displacements = current_drone_pos - nb_pos
+    displacements = current_drone_pos - candidate_positions
     squared_distances = np.sum(displacements**2, axis=1)
 
     distance_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
     masked_displacements = displacements[distance_mask]
-    masked_candidates = np.array(candidate_neigbours)[distance_mask]
+    masked_candidates = candidate_neighbours[distance_mask]
     masked_distances = squared_distances[distance_mask]
 
     contributions = np.sum(masked_displacements / masked_distances[:, None], axis=0)
 
     return masked_candidates, contributions
-
-
-    # displacements = np.array([current_drone_pos - drone_pos[nb_drone] for nb_drone in candidate_neigbours])
-    # squared_distances = [np.sum(np.sqrt(current_drone_pos**2 + drone_pos[nb_drone]**2), idx=0) for nb_drone in candidate_neigbours]
-
-    # neighbourhood_mask = (squared_distances > 0) & (squared_distances <= (DISTANCE_TRESHOLD + 2 * DRONE_SIZE)**2)
-    # neighbourhood_displacements = displacements[neighbourhood_mask]
-    # neighbourhood_indices = np.flatnonzero(neighbourhood_mask)
-    # neighbourhood_distances = squared_distances[neighbourhood_mask]
-    # contributions = np.sum(
-    #     neighbourhood_displacements / neighbourhood_distances[:, None], 
-    #     axis=0)
-
-    # return neighbourhood_indices, contributions
 
 
 def clamp_velocity(velocity):
@@ -264,18 +244,16 @@ def clamp_velocity(velocity):
 
 def boids_algorithm(
         drone_idx, 
-        pairwise_displacements, 
-        pairwise_squared_distances,
         drone_candidate_mapping):
     global neighbour_time_accumulator
     global averaging_timer_accumulator
 
     start_neighbours = time.perf_counter()
+    candidate_neighbours, candidate_positions = drone_candidate_mapping[drone_idx]
     drone_neighbours, separation_vector = find_neighbours(
-        drone_idx, 
-        pairwise_displacements, 
-        pairwise_squared_distances,
-        drone_candidate_mapping
+        drone_idx,
+        candidate_neighbours,
+        candidate_positions
     )
     elapsed_neighbours = time.perf_counter() - start_neighbours
     neighbour_time_accumulator += elapsed_neighbours
@@ -332,7 +310,6 @@ time_velocities = []
 time_directions = []
 time_positions = []
 time_collisions = []
-time_pairwise = []
 
 exit_timer = True
 
@@ -375,26 +352,14 @@ while running:
             (cx+1, cy-1), (cx+1, cy),(cx+1, cy+1),
             ]
 
+        candidate_list = []
+        for nb_cell in nb_cells:
+            candidate_list.extend(cell_to_drone_map.get(nb_cell, []))
+
+        candidate_indices = np.asarray(candidate_list, dtype=np.intp)
+        candidate_positions = drone_pos[candidate_indices]
         for drone_idx in drone_list:
-            candidate_list = []
-            for nb_cell in nb_cells:
-                nb_drones = cell_to_drone_map.get(nb_cell, [])
-                candidate_list.extend(nb_drones)
-            
-            drone_candidate_mapping[drone_idx] = candidate_list
-
-
-    start_pairwise = time.perf_counter()
-    pairwise_displacements = (
-        drone_pos[:, None, :] - drone_pos[None, :, :]
-    )
-
-    pairwise_squared_distances = np.sum(
-        pairwise_displacements ** 2, axis=2
-    )
-
-    elapsed_pairwise = time.perf_counter() - start_pairwise
-    time_pairwise.append(elapsed_pairwise)
+            drone_candidate_mapping[drone_idx] = (candidate_indices, candidate_positions)
 
     neighbour_time_accumulator = 0
     averaging_timer_accumulator = 0
@@ -402,9 +367,7 @@ while running:
     for drone_idx in range(N_DRONES):
         new_velocities.append(
             boids_algorithm(
-                drone_idx, 
-                pairwise_displacements, 
-                pairwise_squared_distances,
+                drone_idx,
                 drone_candidate_mapping))
     
     neighbour_times.append(neighbour_time_accumulator)
@@ -457,5 +420,4 @@ print(f"Positions: {np.mean(time_positions) * 1000} ms")
 print(f"Collisions: {np.mean(time_collisions) * 1000} ms")
 print(f"Neighbours: {np.mean(neighbour_times) * 1000} ms")
 print(f"Averaging: {np.mean(averaging_times) * 1000} ms")
-print(f"Pairwise: {np.mean(time_pairwise) * 1000} ms")
 print()
